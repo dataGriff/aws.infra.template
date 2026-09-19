@@ -13,10 +13,11 @@ it and read what they need from the **SSM interface** it publishes. Contracts li
 
 ## Golden rules
 
-- **The SSM interface is the platform's contract.** Every value an API may consume is published
-  under `/<platform_name>/<env>/…` by `terraform/platform/main.tf` and documented in
-  `docs/interface/`. Adding a parameter is additive; renaming/removing one bumps
-  `interface_version`. APIs never read platform state.
+- **The SSM interface and the token claims are the platform's contract.** Every value an API may
+  consume is published under `/<platform_name>/<env>/…` by `terraform/platform/main.tf`, and the
+  claims the pre-token trigger issues are documented next to it in `docs/interface/`. Adding is
+  additive; renaming/removing a parameter or changing a claim bumps `interface_version`. APIs
+  never read platform state.
 - **Everything runs through the Taskfile.** Git hooks and CI call only `task` targets.
 - **Every scanner fails the build.** Accepted findings live in `.checkov.yaml` / `.trivyignore` /
   `#checkov:skip` / `nosemgrep` with a written reason.

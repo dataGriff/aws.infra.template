@@ -35,6 +35,27 @@ through `terraform/modules/ssm-interface`; verified after every deploy by
 | `apigw/cloudwatch_role_arn`       | String     | always                     | The account-wide API Gateway logging role (reference only)        |
 | `ingress/static_ips`              | StringList | `enable_ingress_static_ip` | The two Global Accelerator anycast IPs                            |
 
+## Token claims
+
+The identity half of the interface: what an access token issued by the platform's user pool
+carries. Every API authorizes on these, so they are as much a contract as the parameters above;
+the API contract template documents the same shape from the consumer's side
+(`access_token_claims` in `aws.contract.template`), and changing them is an interface bump.
+
+| Claim              | Source                                                                   | Type                                | Present                                  |
+| ------------------ | ------------------------------------------------------------------------ | ----------------------------------- | ---------------------------------------- |
+| `sub`              | Cognito                                                                  | string (stable user id)             | always                                   |
+| `custom:tenant_id` | the user's `custom:tenant_id` attribute, copied by the pre-token trigger | string, 1–256 chars                 | always (trigger fails closed without it) |
+| `roles`            | the user's group memberships, added by the pre-token trigger             | string: JSON-encoded array of names | when the user is in ≥ 1 group            |
+| `cognito:groups`   | Cognito                                                                  | array of strings                    | when Cognito includes it                 |
+
+- Both the **access** and **id** tokens carry the custom claims (V2 trigger, `packages/cognito-pretoken`).
+- `roles` is JSON-encoded so group names containing separators survive the API Gateway
+  authorizer's flattening of array claims into `"[a b]"`.
+- The `admin` group is the conventional administrator role; APIs may define others.
+- Standard claims (`iss`, `aud`/`client_id`, `exp`, `token_use`, …) are verified by each API's
+  gateway authorizer against `cognito/user_pool_arn` and are not part of this table.
+
 ## Consuming it from an API stack
 
 ```hcl
@@ -63,7 +84,9 @@ bootstrap may read only `/<platform_name>/<env>/*` for its environment.
 
 ## Changing the interface
 
-1. Additive change (new parameter): add it to `local.interface_always` / `_optional`, this table
-   and, if always-present, `scripts/interface-verify.sh` + the `dev_defaults` test.
-2. Breaking change: do the above, bump `interface_version` (`terraform/platform/variables.tf`),
-   and coordinate with every API stack's `platform_interface_version` before deploying.
+1. Additive change (new parameter, new optional claim): add it to `local.interface_always` /
+   `_optional` (or the trigger), this document and, if always-present,
+   `scripts/interface-verify.sh` + the `dev_defaults` test.
+2. Breaking change (rename/removal, a claim's name, type or encoding): do the above, bump
+   `interface_version` (`terraform/platform/variables.tf`), and coordinate with every API stack's
+   `platform_interface_version` and every contract's `access_token_claims` before deploying.
