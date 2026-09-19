@@ -1,0 +1,23 @@
+# Single source of truth for tool versions.
+# Local dev, git hooks, and GitHub Actions all run `mise install` then invoke
+# Taskfile targets — guaranteeing identical tooling everywhere.
+[tools]
+# Everything is pinned exactly for reproducibility (local == hooks == CI). Bumped via Renovate.
+node = "22.11.0"
+pnpm = "9.12.3" # keep in sync with package.json "packageManager"
+# python stays at minor precision: mise verifies GitHub artifact attestations for
+# its prebuilt python and only recent patch releases carry them.
+python = "3.12"
+terraform = "1.9.8"
+task = "3.40.1"
+tflint = "0.64.0"
+trivy = "0.74.0"
+gitleaks = "8.30.1"
+infracost = "0.10.45"
+lefthook = "2.1.14"
+"pipx:checkov" = "3.3.19"
+"pipx:semgrep" = "1.177.0"
+
+[env]
+# Loaded into the shell (and CI) for every task. Non-secret defaults only.
+AWS_REGION = "eu-west-2"

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    "group:allNonMajor",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "labels": ["dependencies"],
+  "minimumReleaseAge": "7 days",
+  "packageRules": [
+    {
+      "description": "Auto-merge dev tooling only. Terraform providers and the trigger's runtime always get a human review: main auto-deploys the platform every API depends on.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "minimumReleaseAge": "7 days",
+      "automerge": true
+    },
+    {
+      "matchManagers": ["terraform"],
+      "groupName": "terraform providers"
+    },
+    {
+      "matchFileNames": [".mise.toml"],
+      "groupName": "mise tools"
+    }
+  ],
+  "lockFileMaintenance": { "enabled": true }
+}
