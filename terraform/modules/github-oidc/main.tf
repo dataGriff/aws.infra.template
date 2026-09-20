@@ -93,6 +93,7 @@ data "aws_iam_policy_document" "workload_boundary" {
   #checkov:skip=CKV_AWS_356:A permissions boundary is a ceiling, not a grant — it must name the whole action space the workload policies may use; the roles' own policies scope resources
   #checkov:skip=CKV_AWS_290:Same — a boundary intentionally lists write actions on "*"; effective access is the intersection with the role's scoped policy
   #checkov:skip=CKV_AWS_355:Same
+  #checkov:skip=CKV_AWS_111:Same — write actions without a resource constraint are what a boundary ceiling is; the roles' policies constrain
   for_each = { for k, r in var.roles : k => r if !r.admin }
   statement {
     sid       = "WorkloadAllowlist"
