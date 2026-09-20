@@ -135,7 +135,9 @@ data "aws_iam_policy_document" "state_access" {
     resources = [each.value.lock_table_arn]
   }
   statement {
-    actions   = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey"]
+    # DescribeKey: the deploy tasks resolve the derived alias to the key ARN,
+    # which the bucket policy requires on every write.
+    actions   = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
     resources = [each.value.state_kms_key_arn]
   }
 }

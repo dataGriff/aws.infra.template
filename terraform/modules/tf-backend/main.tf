@@ -96,9 +96,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
   depends_on = [aws_s3_bucket_versioning.state]
 }
 
-# TLS-only, and every write must use the bucket's CMK (the S3 backend sends
-# AES256 unless kms_key_id is configured; this makes that misconfiguration fail
-# loudly instead of silently downgrading the encryption).
+# TLS-only, and every write must use THIS bucket's CMK: the S3 backend sends
+# AES256 unless kms_key_id is configured, and a caller could otherwise pick any
+# key they can use. Both misconfigurations fail loudly instead of silently
+# weakening the isolation. The deploy tasks resolve the key's alias to its ARN
+# and pass that as kms_key_id, which is what the second condition compares.
 data "aws_iam_policy_document" "state" {
   statement {
     sid     = "DenyInsecureTransport"
@@ -128,6 +130,21 @@ data "aws_iam_policy_document" "state" {
       test     = "StringNotEquals"
       variable = "s3:x-amz-server-side-encryption"
       values   = ["aws:kms"]
+    }
+  }
+  statement {
+    sid     = "DenyOtherKmsKeys"
+    effect  = "Deny"
+    actions = ["s3:PutObject"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    resources = ["${aws_s3_bucket.state.arn}/*"]
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:x-amz-server-side-encryption-aws-kms-key-id"
+      values   = [aws_kms_key.state.arn]
     }
   }
 }

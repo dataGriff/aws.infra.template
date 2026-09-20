@@ -29,6 +29,11 @@ variable "services" {
     condition     = alltrue([for s in var.services : can(regex("^[a-z][a-z0-9-]{1,30}$", s.name))])
     error_message = "service names must be lower-case kebab-case (they become bucket, table and role names)."
   }
+  validation {
+    # Owners (platform + services) share one namespace for backends and roles.
+    condition     = !contains([for s in var.services : s.name], var.platform_name)
+    error_message = "a service cannot be named like the platform (platform_name); it would overwrite the platform's backends and deploy roles."
+  }
 }
 variable "create_github_oidc" {
   type        = bool
