@@ -130,7 +130,8 @@ data "aws_iam_policy_document" "state_access" {
     resources = ["${each.value.state_bucket_arn}/*"]
   }
   statement {
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+    # DescribeTable: the S3 backend validates the lock table on every init.
+    actions   = ["dynamodb:DescribeTable", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
     resources = [each.value.lock_table_arn]
   }
   statement {

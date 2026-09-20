@@ -14,8 +14,9 @@ data "aws_partition" "current" {}
 #         Callers reach it through the services (grants), so the policy only
 #         needs the account root; IAM policies on the roles do the rest.
 #   ops:  CloudWatch log groups, the alarm SNS topic and Lambda environment
-#         variables. CloudWatch Logs and CloudWatch Alarms encrypt/decrypt with
-#         it as services, so they need explicit grants in the key policy.
+#         variables. CloudWatch Logs, CloudWatch Alarms (publishing to the
+#         encrypted topic) and SNS (delivering from it) use it as services, so
+#         each needs an explicit, scoped statement in the key policy.
 data "aws_iam_policy_document" "data" {
   #checkov:skip=CKV_AWS_109:Standard AWS key policy — the account root principal must keep kms:* or the key becomes unmanageable; access is delegated through IAM
   #checkov:skip=CKV_AWS_111:Standard AWS key policy — the account root principal must keep kms:* or the key becomes unmanageable; access is delegated through IAM
@@ -84,6 +85,27 @@ data "aws_iam_policy_document" "ops" {
     principals {
       type        = "Service"
       identifiers = ["cloudwatch.amazonaws.com"]
+    }
+  }
+  # SNS encrypts/decrypts topic messages with the key when delivering to
+  # subscribers; limited to calls made through SNS in this region by this account.
+  statement {
+    sid       = "SnsTopicEncryption"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+    resources = ["*"]
+    principals {
+      type        = "Service"
+      identifiers = ["sns.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["sns.${var.region}.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "kms:CallerAccount"
+      values   = [data.aws_caller_identity.current.account_id]
     }
   }
 }

@@ -132,6 +132,8 @@ tasks:
   tf:test:
     desc: "terraform test of the platform's guardrails and published interface (mocked providers, no credentials)"
     cmds:
+      # Every provider (aws, random, archive) is mocked, so no credentials, network
+      # or built trigger bundle are needed: the archive data source never reads dist/.
       - terraform -chdir={{.TF_DIR}}/platform init -backend=false -input=false >/dev/null
       - terraform -chdir={{.TF_DIR}}/platform test
   tf:scan:
