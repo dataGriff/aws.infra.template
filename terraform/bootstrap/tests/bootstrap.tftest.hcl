@@ -62,6 +62,10 @@ run "one_backend_and_role_per_owner_and_env" {
     error_message = "every service must get a scoped (non-admin) deploy role per environment"
   }
   assert {
+    condition     = module.github_oidc.workload_boundary_names == tolist(["orders-api-dev-workload-boundary", "orders-api-prod-workload-boundary", "todo-api-dev-workload-boundary", "todo-api-prod-workload-boundary"])
+    error_message = "every service role (and only those) must get a workload permissions boundary"
+  }
+  assert {
     condition     = module.github_oidc.interface_protected_role_names == module.github_oidc.service_role_names
     error_message = "every service role (and only those) must carry the explicit deny on writes to the platform SSM namespace"
   }

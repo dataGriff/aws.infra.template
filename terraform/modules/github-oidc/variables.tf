@@ -21,3 +21,22 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+variable "workload_boundary_actions" {
+  type        = list(string)
+  description = "Ceiling for every IAM role a service deploy role creates (Lambda, RDS Proxy, ...): the action namespaces an API workload may use. Extend here (a platform change) when a service needs more; IAM is never included."
+  default = [
+    "logs:*", "xray:*", "cloudwatch:*",
+    "secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret",
+    "rds-db:connect", "rds:Describe*",
+    "dynamodb:*", "sqs:*", "sns:Publish", "events:PutEvents", "states:*",
+    "s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket",
+    "s3:GetBucketLocation", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts",
+    "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*", "kms:DescribeKey",
+    "ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath", "ssm:DescribeParameters",
+    "lambda:InvokeFunction", "execute-api:Invoke",
+    "ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces", "ec2:DeleteNetworkInterface",
+    "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeVpcs",
+    "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses",
+    "sts:GetCallerIdentity",
+  ]
+}

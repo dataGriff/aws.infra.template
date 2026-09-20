@@ -55,6 +55,12 @@ change. Backend names are **derived**, so nobody picks a globally-unique bucket 
    `service_deploy_role_arns["<service_name>"]`.
 4. If the service needs a hostname, make sure `dns_enabled` is on for the env; it will create
    `<service_name>.<base_domain>` itself. If it needs the WAF, `enable_waf` must be on.
+5. Its workload roles must carry the boundary from `workload_boundary_arns["<service>-…"]`
+   (the API template reads it from `/platform/<env>/…`? no — it is an IAM name, derived:
+   `arn:aws:iam::<account>:policy/<service_name>-<env>-workload-boundary`). If a service needs an
+   action outside the default allowlist (`terraform/modules/github-oidc/variables.tf`,
+   `workload_boundary_actions`), extend it here and re-run the bootstrap: that is a platform
+   decision, by design.
 
 Removing a service: delete it from `services`, apply (the state bucket is `prevent_destroy`; empty
 and remove it by hand once the API is destroyed).

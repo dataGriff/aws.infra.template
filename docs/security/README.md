@@ -8,7 +8,11 @@ The platform is secure-by-default and is the trust boundary every API inherits.
   **service roles** get `PowerUserAccess` + IAM scoped to `<service>-<env>-*` roles/policies, their
   own state backend, and read-only access to `/<platform>/<env>/*` parameters — with writes anywhere
   under `/<platform>/*` **explicitly denied**, so no service can alter the published interface.
-  Nothing else.
+  Every IAM role a service creates (its Lambda, its RDS Proxy) must carry the service's
+  **workload permissions boundary** (`<service>-<env>-workload-boundary`, an allowlist of the
+  action namespaces an API workload may use, never IAM): `iam:CreateRole` / `PutRolePolicy` /
+  `AttachRolePolicy` are conditioned on it and removing or editing it is denied, so a service
+  cannot mint a role more powerful than itself and pass it to a Lambda. Nothing else.
 - **State**: per env, per owner S3 buckets — versioned, CMK-encrypted, TLS-only, non-KMS writes
   denied, public access blocked, `prevent_destroy` — with encrypted, PITR-enabled lock tables.
 - **Network**: VPC flow logs on; the default security group is stripped of all rules; private

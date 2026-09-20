@@ -20,3 +20,7 @@ output "service_deploy_role_arns" {
     }
   }
 }
+output "workload_boundary_arns" {
+  description = "Per service deploy role, the permissions boundary every IAM role that service creates must carry (the API template's stack sets it on its Lambda/proxy roles)"
+  value       = module.github_oidc.workload_boundary_arns
+}

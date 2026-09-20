@@ -82,24 +82,87 @@ resource "aws_iam_role_policy_attachment" "poweruser" {
   policy_arn = "arn:${local.partition}:iam::aws:policy/PowerUserAccess"
 }
 
-data "aws_iam_policy_document" "scoped_iam" {
+# --- Workload permissions boundary ------------------------------------------
+# A service deploy role may create IAM roles for its workloads (Lambda, RDS
+# Proxy, ...). Without a cap it could attach AdministratorAccess to such a role
+# and pass it to a Lambda — an escape from its own scope. So every role a
+# service creates or re-policies MUST carry this boundary (enforced by the
+# iam:PermissionsBoundary conditions below), and the boundary itself never
+# grants IAM. Effective workload permissions = its policies ∩ this allowlist.
+data "aws_iam_policy_document" "workload_boundary" {
+  #checkov:skip=CKV_AWS_356:A permissions boundary is a ceiling, not a grant — it must name the whole action space the workload policies may use; the roles' own policies scope resources
+  #checkov:skip=CKV_AWS_290:Same — a boundary intentionally lists write actions on "*"; effective access is the intersection with the role's scoped policy
+  #checkov:skip=CKV_AWS_355:Same
   for_each = { for k, r in var.roles : k => r if !r.admin }
   statement {
-    sid = "ServiceRolesAndPolicies"
+    sid       = "WorkloadAllowlist"
+    actions   = var.workload_boundary_actions
+    resources = ["*"]
+  }
+  statement {
+    sid    = "DenyWritesToPlatformInterface"
+    effect = "Deny"
     actions = [
-      "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:UpdateRole", "iam:UpdateRoleDescription",
+      "ssm:PutParameter", "ssm:DeleteParameter", "ssm:DeleteParameters",
+      "ssm:LabelParameterVersion", "ssm:UnlabelParameterVersion",
+      "ssm:PutResourcePolicy", "ssm:DeleteResourcePolicy",
+    ]
+    resources = ["arn:${local.partition}:ssm:*:${local.account_id}:parameter${each.value.protected_ssm_prefix}/*"]
+  }
+}
+
+resource "aws_iam_policy" "workload_boundary" {
+  for_each    = data.aws_iam_policy_document.workload_boundary
+  name        = "${var.roles[each.key].iam_name_prefix}workload-boundary"
+  description = "Permissions boundary every IAM role created by ${each.key} must carry"
+  policy      = each.value.json
+  tags        = var.tags
+}
+
+data "aws_iam_policy_document" "scoped_iam" {
+  for_each = { for k, r in var.roles : k => r if !r.admin }
+  # Creating a role or giving it permissions only works WITH the boundary.
+  statement {
+    sid       = "CreateBoundedRoles"
+    actions   = ["iam:CreateRole", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:PutRolePermissionsBoundary"]
+    resources = ["arn:${local.partition}:iam::${local.account_id}:role/${each.value.iam_name_prefix}*"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PermissionsBoundary"
+      values   = [aws_iam_policy.workload_boundary[each.key].arn]
+    }
+  }
+  statement {
+    sid = "ManageServiceRoles"
+    actions = [
+      "iam:DeleteRole", "iam:GetRole", "iam:UpdateRole", "iam:UpdateRoleDescription",
       "iam:UpdateAssumeRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:ListRolePolicies",
       "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole",
-      "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy",
-      "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PassRole",
+      "iam:DeleteRolePolicy", "iam:GetRolePolicy", "iam:DetachRolePolicy", "iam:PassRole",
+    ]
+    resources = ["arn:${local.partition}:iam::${local.account_id}:role/${each.value.iam_name_prefix}*"]
+  }
+  statement {
+    sid = "ManageServicePolicies"
+    actions = [
       "iam:CreatePolicy", "iam:DeletePolicy", "iam:GetPolicy", "iam:GetPolicyVersion",
       "iam:CreatePolicyVersion", "iam:DeletePolicyVersion", "iam:ListPolicyVersions",
       "iam:TagPolicy", "iam:UntagPolicy",
     ]
-    resources = [
-      "arn:${local.partition}:iam::${local.account_id}:role/${each.value.iam_name_prefix}*",
-      "arn:${local.partition}:iam::${local.account_id}:policy/${each.value.iam_name_prefix}*",
-    ]
+    resources = ["arn:${local.partition}:iam::${local.account_id}:policy/${each.value.iam_name_prefix}*"]
+  }
+  # The boundary is the platform's: a service may read it, never remove or edit it.
+  statement {
+    sid       = "DenyBoundaryTampering"
+    effect    = "Deny"
+    actions   = ["iam:DeleteRolePermissionsBoundary"]
+    resources = ["arn:${local.partition}:iam::${local.account_id}:role/${each.value.iam_name_prefix}*"]
+  }
+  statement {
+    sid       = "DenyBoundaryEdits"
+    effect    = "Deny"
+    actions   = ["iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:DeletePolicyVersion", "iam:SetDefaultPolicyVersion"]
+    resources = [aws_iam_policy.workload_boundary[each.key].arn]
   }
   # (iam:ListRoles and iam:CreateServiceLinkedRole — needed by RDS/API Gateway —
   # are already granted by PowerUserAccess.)
