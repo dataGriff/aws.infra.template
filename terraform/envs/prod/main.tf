@@ -7,6 +7,8 @@ module "platform" {
 
   vpc_cidr                 = var.vpc_cidr
   enable_egress_static_ip  = var.enable_egress_static_ip
+  interface_endpoints      = var.interface_endpoints
+  endpoint_az_count        = var.endpoint_az_count
   enable_ingress_static_ip = var.enable_ingress_static_ip
   ingress_target_ips       = var.ingress_target_ips
   enable_waf               = var.enable_waf

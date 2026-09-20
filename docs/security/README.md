@@ -17,7 +17,10 @@ The platform is secure-by-default and is the trust boundary every API inherits.
   denied, public access blocked, `prevent_destroy` — with encrypted, PITR-enabled lock tables.
 - **Network**: VPC flow logs on; the default security group is stripped of all rules; private
   subnets reach AWS APIs through interface/gateway endpoints and have **no** internet route unless
-  `enable_egress_static_ip` adds NAT.
+  `enable_egress_static_ip` adds NAT. The interface-endpoint set is per env (`interface_endpoints`,
+  `endpoint_az_count`) because PrivateLink bills per endpoint per AZ; prod may not trim either
+  (validations in `terraform/platform/variables.tf`), and dev ships with none until a workload
+  needs one — fewer endpoints narrows reachability, it never widens it.
 - **Keys**: two CMKs per env with explicit key policies (`data` for storage/secrets/tables, `ops`
   for logs/alarm topic/Lambda env). APIs receive ARNs through the interface and get grants via IAM.
 - **Identity**: Cognito with a 12-char password policy, TOTP MFA available (`mfa_configuration`),

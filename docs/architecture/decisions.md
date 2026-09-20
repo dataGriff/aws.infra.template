@@ -9,6 +9,15 @@ DNS-fronted and can't be given a fixed inbound IP directly. Both add cost, so th
 default. Both are platform-level: one stable egress IP and one ingress pair per environment,
 shared by every API.
 
+**ADR-7: Interface endpoints instead of NAT — but per-environment.** Private subnets have no
+internet route by default, so AWS API calls go through interface endpoints. That is the right
+default for prod, but PrivateLink bills per endpoint _per AZ_: the five default services across two
+AZs cost roughly $75/month, which is more than the NAT gateway they replace and is charged whether
+or not anything is attached to the VPC. So `interface_endpoints` and `endpoint_az_count` are
+per-env variables — dev runs with none until a workload needs them, while validations in
+`terraform/platform/variables.tf` stop prod trading either away. Trade-off: dev no longer proves
+that a VPC-attached workload can reach the AWS APIs it calls; staging, which mirrors prod, does.
+
 **ADR-8: mise + Taskfile as the single source of tooling and commands.** Git hooks and CI invoke
 only `task` targets after `mise install`, guaranteeing local == CI.
 

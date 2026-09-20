@@ -17,7 +17,7 @@ It is one of three templates:
 | Area           | Resources                                                                                                                                                                               |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Bootstrap**  | One isolated Terraform state backend + GitHub OIDC deploy role per env for the platform **and for every registered API service** (scoped)                                               |
-| **Network**    | VPC, public/private subnets, interface + gateway endpoints (no NAT by default), flow logs, opt-in static egress IP (NAT + EIP)                                                          |
+| **Network**    | VPC, public/private subnets, interface + gateway endpoints (no NAT by default; the interface set is per env and dev ships with none), flow logs, opt-in static egress IP (NAT + EIP)    |
 | **Encryption** | Two CMKs with explicit policies: `data` (databases, secrets, tables) and `ops` (logs, alarm topic, Lambda env)                                                                          |
 | **Identity**   | Cognito user pool + hosted UI + app client (+ dev/staging test client), pre-token-generation trigger adding `custom:tenant_id` / `roles` claims                                         |
 | **Edge**       | WAF web ACL (managed rule groups + rate limit, logging with credentials redacted), wildcard ACM certificate for `*.<base_domain>`, opt-in static ingress IPs (Global Accelerator + NLB) |

@@ -50,6 +50,8 @@ module "network" {
   azs                     = local.azs
   cidr                    = var.vpc_cidr
   enable_egress_static_ip = var.enable_egress_static_ip
+  interface_endpoints     = var.interface_endpoints
+  endpoint_az_count       = var.endpoint_az_count
   kms_key_arn             = module.kms.ops_key_arn
   log_retention_days      = var.log_retention_days
   tags                    = local.tags

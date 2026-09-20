@@ -21,6 +21,31 @@ variable "enable_egress_static_ip" {
   default     = false
   description = "NAT + EIP so every API on the platform egresses from one stable IP (opt-in, costs)"
 }
+# The platform has no NAT by default, so private subnets reach AWS APIs through
+# interface endpoints — which PrivateLink bills per endpoint PER AZ. An env with
+# nothing in its private subnets is paying for reachability it does not use, so
+# both the service list and the AZ spread are per-env. prod may not trade either
+# away (validations below, covered by `task tf:test`).
+variable "interface_endpoints" {
+  type        = list(string)
+  default     = ["secretsmanager", "logs", "sts", "kms", "xray"]
+  description = "AWS APIs reachable from the private subnets without NAT. Empty = none; add back what a VPC-attached workload actually calls."
+  validation {
+    condition     = var.env != "prod" || length(setsubtract(["secretsmanager", "logs", "sts", "kms", "xray"], var.interface_endpoints)) == 0
+    error_message = "prod must keep the full interface-endpoint set; trimming them is a dev-only cost saving."
+  }
+}
+variable "endpoint_az_count" {
+  type        = number
+  default     = null
+  description = "AZs each interface endpoint is placed in (null = every private subnet). Halving it halves the endpoint bill and removes their AZ redundancy."
+  validation {
+    # coalesce, not a null check: Terraform evaluates both sides of || , so a bare
+    # `var.endpoint_az_count >= 2` errors on the default (null) instead of passing.
+    condition     = var.env != "prod" || coalesce(var.endpoint_az_count, 2) >= 2
+    error_message = "prod interface endpoints must span at least 2 AZs."
+  }
+}
 variable "enable_ingress_static_ip" {
   type    = bool
   default = false

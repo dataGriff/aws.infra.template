@@ -16,6 +16,13 @@ dns_enabled              = false
 # hosted_zone_id = "Z0123456789ABCDEFGHIJ"
 # alarm_email    = "alerts@example.com"
 
+# Nothing is VPC-attached in dev yet, and PrivateLink bills per endpoint PER AZ
+# (~$7.30/month each — five endpoints across two AZs is ~$75/month for AWS API
+# reachability from empty private subnets). Add back what a VPC-attached workload
+# actually calls when one arrives (usually logs + sts + kms), optionally with
+# endpoint_az_count = 1. staging and prod keep the full set.
+interface_endpoints = []
+
 # Shorter log retention than the 365-day prod default.
 log_retention_days = 14
 

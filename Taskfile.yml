@@ -151,16 +151,26 @@ tasks:
   tf:bootstrap:
     desc: "One-time per account: state backends + GitHub OIDC deploy roles for the platform AND every registered service (terraform/bootstrap/variables.tf `services`). GITHUB_REPOSITORY=<owner/repo> of THIS repo required. Needs local admin AWS creds. See docs/operations."
     dir: "{{.TF_DIR}}/bootstrap"
+    # Both forms work: `task tf:bootstrap GITHUB_REPOSITORY=o/r` (a Task variable,
+    # which is what every doc prints) and `GITHUB_REPOSITORY=o/r task tf:bootstrap`
+    # (a shell variable). Task does not export its variables to the command's
+    # environment, so each is resolved from the template first, then the shell.
+    # NOTE: GitHub Actions always sets GITHUB_REPOSITORY, so this precondition is a
+    # no-op inside a workflow — bootstrap is deliberately local and one-time.
     preconditions:
-      - sh: test -n "$GITHUB_REPOSITORY"
+      - sh: '[ -n "{{.GITHUB_REPOSITORY}}" ] || [ -n "${GITHUB_REPOSITORY:-}" ]'
         msg: "Set GITHUB_REPOSITORY=<owner/repo> so the platform OIDC trust is scoped to your repo (default is the template's own repo)."
     cmds:
-      # Local backend — this run CREATES the per-env remote backends the envs use.
-      - terraform init -input=false
-      - terraform apply -input=false -var=platform_name="${PLATFORM_NAME:-platform}" -var=github_repository="$GITHUB_REPOSITORY"
-      # Prints the derived bucket/lock/alias names + deploy role ARNs. Only
-      # AWS_DEPLOY_ROLE_ARN (per env, per repo) needs setting as a GitHub secret.
-      - terraform output
+      - |
+        set -euo pipefail
+        repo="{{.GITHUB_REPOSITORY}}"; repo="${repo:-${GITHUB_REPOSITORY:-}}"
+        name="{{.PLATFORM_NAME}}";     name="${name:-${PLATFORM_NAME:-platform}}"
+        # Local backend — this run CREATES the per-env remote backends the envs use.
+        terraform init -input=false
+        terraform apply -input=false -var=platform_name="$name" -var=github_repository="$repo"
+        # Prints the derived bucket/lock/alias names + deploy role ARNs. Only
+        # AWS_DEPLOY_ROLE_ARN (per env, per repo) needs setting as a GitHub secret.
+        terraform output
 
   tf:plan:
     desc: "Terraform plan for an env, e.g. task tf:plan ENV=dev (backend names derived from platform_name+env+account; needs AWS creds)"
@@ -173,7 +183,8 @@ tasks:
       # accepts writes encrypted with exactly that key.
       - |
         set -euo pipefail
-        name="${PLATFORM_NAME:-$(sed -nE 's/^platform_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' terraform.tfvars)}"
+        name="{{.PLATFORM_NAME}}"
+        name="${name:-${PLATFORM_NAME:-$(sed -nE 's/^platform_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' terraform.tfvars)}}"
         account="$(aws sts get-caller-identity --query Account --output text)"
         region="${AWS_REGION:-eu-west-2}"
         key_arn="$(aws kms describe-key --key-id "alias/${name}-tfstate-{{.ENV}}" --query KeyMetadata.Arn --output text)"

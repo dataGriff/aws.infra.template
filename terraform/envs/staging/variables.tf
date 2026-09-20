@@ -19,6 +19,16 @@ variable "enable_egress_static_ip" {
   type    = bool
   default = false
 }
+# PrivateLink bills per interface endpoint PER AZ; the platform validates that prod
+# keeps the full set across >= 2 AZs (terraform/platform/variables.tf).
+variable "interface_endpoints" {
+  type    = list(string)
+  default = ["secretsmanager", "logs", "sts", "kms", "xray"]
+}
+variable "endpoint_az_count" {
+  type    = number
+  default = null
+}
 variable "enable_ingress_static_ip" {
   type    = bool
   default = false

@@ -10,6 +10,11 @@ locals {
   # NAT is only needed when we want a stable egress IP (opt-in). AWS API traffic
   # uses VPC endpoints, so private subnets don't otherwise need NAT.
   enable_nat = var.enable_egress_static_ip
+  # An interface endpoint is billed per ENI, i.e. per AZ it is placed in. Subnets
+  # stay spread across every AZ (they are free, and the published interface lists
+  # them); only the endpoint ENIs shrink when an env trades redundancy for cost.
+  endpoint_az_count   = coalesce(var.endpoint_az_count, local.az_count)
+  endpoint_subnet_ids = slice(aws_subnet.private[*].id, 0, min(local.endpoint_az_count, local.az_count))
 }
 
 resource "aws_vpc" "this" {
@@ -170,7 +175,7 @@ resource "aws_vpc_endpoint" "interface" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.region}.${each.value}"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = aws_subnet.private[*].id
+  subnet_ids          = local.endpoint_subnet_ids
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
   tags                = merge(var.tags, { Name = "${var.name}-${each.value}" })
