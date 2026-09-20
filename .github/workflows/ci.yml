@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0 # gitleaks (task security:secrets) scans history, same as the local hook
+          persist-credentials: false
+
+      # Installs every tool pinned in .mise.toml, so CI uses the SAME versions
+      # as local dev and the git hooks.
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        with:
+          install: true
+          cache: true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The gates below are exactly the sub-tasks of `task ci` (what the pre-push
+      # hook runs), one step each so the Actions UI shows which gate failed and
+      # its log is collapsible on its own. Every gate fails on findings.
+      - name: "check: format, lint, typecheck, terraform fmt, secrets, unit"
+        run: task check
+      - name: "build: Cognito pre-token trigger bundle"
+        run: task build
+      - name: "terraform: validate (all envs + bootstrap), tflint, terraform test (guardrails + interface)"
+        run: task tf:validate
+      - name: "terraform: security scan (trivy + checkov)"
+        run: task tf:scan
+      - name: "dependencies: vulnerability scan (trivy)"
+        run: task security:deps
+
+      - name: Upload test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: test-results
+          path: |
+            test-results/
+            packages/cognito-pretoken/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

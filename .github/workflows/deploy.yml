@@ -1,0 +1,115 @@
+name: Deploy
+
+on:
+  # dev deploys only after the CI workflow has passed on main — never in a
+  # race with it. staging/prod are manual and gated by Environment protection.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+
+permissions:
+  id-token: write # OIDC — no long-lived AWS keys
+  contents: read
+  checks: read # manual dispatch verifies the commit has a successful CI run
+
+# One apply per environment at a time; never cancel a running apply (that
+# orphans state), queue behind it instead.
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # workflow_run: only a successful CI run of main itself may deploy (never a
+    # PR's head, even though the branches filter above already excludes them).
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # GitHub Environment protection rules gate staging/prod (configure in repo settings).
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-2' }}
+      # Workflow-only: where the saved plan lands (the Taskfile derives its own
+      # directories from ENV). No backend config here: `task tf:apply` derives the
+      # per-env bucket/lock/KMS names from platform_name + env + account id and
+      # passes them to `init`, so CI and local runs share one code path with no
+      # state secrets.
+      TF_ENV_DIR: terraform/envs/${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Check required configuration
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          if [ -z "$AWS_DEPLOY_ROLE_ARN" ]; then
+            echo "::error::Missing required secret AWS_DEPLOY_ROLE_ARN — see docs/operations."
+            exit 1
+          fi
+
+      # Manual dispatch may pick any ref; hold it to the same bar as the automatic
+      # path (ADR-11: deploy only what CI validated) by requiring a successful
+      # `ci` check run on that exact commit.
+      - name: Require a successful CI run for this commit (manual dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?check_name=ci" \
+            --jq '[.check_runs[] | select(.name == "ci")] | max_by(.completed_at) | .conclusion // ""')"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::No successful CI run for ${GITHUB_SHA} (found: '${conclusion:-none}'). Deploy only CI-validated commits."
+            exit 1
+          fi
+
+      # Deploy exactly the commit CI validated: for a workflow_run event github.sha
+      # is the default branch's CURRENT head, which may already be a newer, unvalidated
+      # push. Manual dispatch deploys the selected ref's head (github.sha).
+      # Semgrep's workflow_run pwn-request rule fires on any checkout of head_sha; here
+      # the job's `if:` above only admits a successful CI run of `main` in THIS repository
+      # (never a fork or PR head), so the checked-out code is always trusted main.
+      # nosemgrep: yaml.github-actions.security.workflow-run-target-code-checkout.workflow-run-target-code-checkout
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        with: { install: true, cache: true }
+
+      - run: pnpm install --frozen-lockfile
+
+      # Build the artifact Terraform packages (the pre-token trigger bundle).
+      # Runs BEFORE cloud credentials exist.
+      - run: task build
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Apply via the same task local dev uses: plan to a file, then apply
+      # that exact plan.
+      - name: Terraform plan + apply
+        run: task tf:apply ENV="$ENV"
+
+      - name: Keep the applied plan as a record
+        if: ${{ always() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: tfplan-${{ env.ENV }}-${{ github.run_id }}
+          path: ${{ env.TF_ENV_DIR }}/tfplan
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # The platform's contract with every API on it: each always-present
+      # parameter documented in docs/interface must exist after the apply.
+      - name: Verify the published interface
+        run: task interface:verify ENV="$ENV"

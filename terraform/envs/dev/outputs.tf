@@ -1,0 +1,11 @@
+output "ssm_prefix" { value = module.platform.ssm_prefix }
+output "interface_parameters" { value = module.platform.interface_parameters }
+output "vpc_id" { value = module.platform.vpc_id }
+output "cognito_user_pool_id" { value = module.platform.cognito_user_pool_id }
+output "cognito_app_client_id" { value = module.platform.cognito_app_client_id }
+output "cognito_test_client_id" { value = module.platform.cognito_test_client_id }
+output "cognito_issuer" { value = module.platform.cognito_issuer }
+output "alarm_topic_arn" { value = module.platform.alarm_topic_arn }
+output "egress_static_ip" { value = module.platform.egress_static_ip }
+output "ingress_static_ips" { value = module.platform.ingress_static_ips }
+output "certificate_arn" { value = module.platform.certificate_arn }

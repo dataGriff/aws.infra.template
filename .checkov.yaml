@@ -1,0 +1,28 @@
+# Checkov policy for `task tf:scan`. It FAILS the build: every finding is either
+# fixed in the Terraform or listed here with the reason it is accepted. Do not
+# add an entry without a justification, and re-review them when the design
+# changes. IDs: https://www.checkov.io/5.Policy%20Index/terraform.html
+framework:
+  - terraform
+quiet: true
+compact: true
+skip-check:
+  # --- Variable-driven settings Checkov cannot evaluate statically. Each is
+  #     forced on for prod by the validations in terraform/platform/variables.tf.
+  - CKV_AWS_150 # NLB deletion protection                     -> var.deletion_protection
+  - CKV2_AWS_5 # SGs attached to a resource: they are, via module inputs Checkov does not follow
+  # --- Not applicable to the Cognito pre-token trigger (synchronous, no VPC resource).
+  - CKV_AWS_116 # Dead-letter queue only applies to asynchronous invocations
+  - CKV_AWS_115 # Reserved concurrency on the trigger would throttle sign-ins
+  - CKV_AWS_117 # The trigger touches no VPC resource; a VPC would only add cold-start latency
+  - CKV_AWS_272 # Code signing: artifacts are built from source in CI behind OIDC; signing config is an opt-in extension
+  # --- Deliberate design choices.
+  - CKV_AWS_394 # Availability zones are sliced from the sorted list of the region's AZs; new AZs sort after the existing ones
+  # --- Terraform state buckets (bootstrap): logging/replication/notifications would need a second bucket
+  #     for low-volume, versioned, CMK-encrypted, TLS-only buckets.
+  - CKV_AWS_18 # S3 access logging
+  - CKV_AWS_144 # S3 cross-region replication
+  - CKV2_AWS_62 # S3 event notifications
+  # --- Opt-in ingress-static-ip module: both need an S3 bucket and are documented follow-ups.
+  - CKV_AWS_75 # Global Accelerator flow logs
+  - CKV_AWS_91 # NLB access logs (each API Gateway access log covers every forwarded request)

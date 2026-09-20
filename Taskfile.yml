@@ -1,0 +1,225 @@
+# Single source of truth for every command.
+# Git hooks (lefthook) and GitHub Actions call ONLY `task <name>` — never inline
+# shell — so local and CI run identical code paths. Tool versions come from mise.
+#
+# Commands are echoed (`task: [name] cmd`) so a log always shows which gate ran
+# which tool. Every gate FAILS on findings; accepted findings live in
+# .checkov.yaml / .trivyignore / `nosemgrep` comments with a written reason.
+version: "3"
+
+vars:
+  TF_DIR: terraform
+  ENV: '{{.ENV | default "dev"}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  # ---------------------------------------------------------------------------
+  # Aggregate gates
+  # ---------------------------------------------------------------------------
+  check:
+    desc: "Fast pre-commit gate: format, lint, typecheck, terraform fmt, secrets, unit"
+    cmds:
+      - task: format:check
+      - task: lint
+      - task: typecheck
+      - task: tf:fmt:check
+      - task: security:secrets
+      - task: test:unit
+
+  ci:
+    desc: "Full gate — runs IDENTICALLY locally and in GitHub Actions (no credentials, no Docker)"
+    cmds:
+      - task: check
+      - task: build
+      - task: tf:validate
+      - task: tf:scan
+      - task: security:deps
+
+  # ---------------------------------------------------------------------------
+  # Code quality (the pre-token-generation Lambda)
+  # ---------------------------------------------------------------------------
+  format:
+    desc: Auto-format all files (prettier + terraform fmt)
+    cmds:
+      - pnpm format
+      - task: tf:fmt
+  format:check:
+    desc: Check formatting
+    cmds:
+      - pnpm format:check
+  lint:
+    desc: Lint (eslint + security plugin)
+    cmds:
+      - pnpm lint
+  typecheck:
+    desc: TypeScript typecheck
+    cmds:
+      - pnpm typecheck
+  build:
+    desc: Build the Lambda bundles Terraform packages (Cognito pre-token trigger)
+    cmds:
+      - pnpm build
+
+  # ---------------------------------------------------------------------------
+  # Tests
+  # ---------------------------------------------------------------------------
+  test:
+    desc: Unit tests + terraform tests
+    cmds:
+      - task: test:unit
+      - task: tf:test
+  test:unit:
+    desc: Unit tests (the pre-token trigger's claim logic)
+    cmds:
+      - pnpm -r --if-present test:unit
+
+  # ---------------------------------------------------------------------------
+  # Security scanning
+  # ---------------------------------------------------------------------------
+  security:
+    desc: Run all security scans
+    cmds:
+      - task: security:secrets
+      - task: security:deps
+      - task: security:code
+      - task: tf:scan
+      - task: sbom
+  security:secrets:
+    desc: Secret scanning (gitleaks)
+    cmds:
+      - gitleaks detect --no-banner --redact
+  security:deps:
+    desc: Dependency & filesystem vulnerability scan (trivy)
+    cmds:
+      - trivy fs --scanners vuln,misconfig --exit-code 1 --severity HIGH,CRITICAL --skip-dirs "**/node_modules" --skip-dirs "**/.terraform" --skip-dirs "**/dist" .
+  security:code:
+    desc: "Static analysis (semgrep) — fails on findings; suppress with a nosemgrep comment + reason"
+    cmds:
+      - mkdir -p test-results
+      - semgrep --config auto --error --metrics=on --text --json-output=test-results/semgrep.json
+  sbom:
+    desc: Generate a CycloneDX SBOM
+    cmds:
+      - trivy fs --format cyclonedx --output sbom.cdx.json .
+
+  # ---------------------------------------------------------------------------
+  # Terraform
+  # ---------------------------------------------------------------------------
+  tf:fmt:
+    desc: Format Terraform
+    cmds:
+      - terraform -chdir={{.TF_DIR}} fmt -recursive
+  tf:fmt:check:
+    desc: Check Terraform formatting
+    cmds:
+      - terraform -chdir={{.TF_DIR}} fmt -check -recursive
+  tf:validate:
+    desc: Terraform fmt-check + validate (every env + bootstrap) + tflint (recursive) + terraform test
+    cmds:
+      - task: tf:fmt:check
+      - for: { var: TF_ROOTS }
+        cmd: terraform -chdir={{.TF_DIR}}/{{.ITEM}} init -backend=false -input=false >/dev/null && terraform -chdir={{.TF_DIR}}/{{.ITEM}} validate
+      # --recursive: terraform/ itself holds no .tf files, only modules/, platform/, envs/, bootstrap/.
+      - tflint --chdir={{.TF_DIR}} --init
+      - tflint --chdir={{.TF_DIR}} --recursive
+      - task: tf:test
+    vars:
+      TF_ROOTS: envs/dev envs/staging envs/prod bootstrap
+  tf:test:
+    desc: "terraform test of the platform's guardrails and published interface, and of the bootstrap's owner/service rules (mocked providers, no credentials)"
+    cmds:
+      # Every provider (aws, random, archive) is mocked, so no credentials, network
+      # or built trigger bundle are needed: the archive data source never reads dist/.
+      - terraform -chdir={{.TF_DIR}}/platform init -backend=false -input=false >/dev/null
+      - terraform -chdir={{.TF_DIR}}/platform test
+      - terraform -chdir={{.TF_DIR}}/bootstrap init -backend=false -input=false >/dev/null
+      - terraform -chdir={{.TF_DIR}}/bootstrap test
+  tf:scan:
+    desc: IaC security scan (Trivy config + Checkov) — both fail on findings
+    cmds:
+      # Trivy (which absorbed tfsec) gates on serious misconfigurations; accepted
+      # exceptions are documented in .trivyignore.
+      - trivy config --exit-code 1 --severity HIGH,CRITICAL {{.TF_DIR}}
+      # Checkov policy + justified skips live in .checkov.yaml. In GitHub Actions
+      # the failed checks are also rendered as a Markdown table in the job summary.
+      - mkdir -p test-results
+      - checkov -d {{.TF_DIR}} --config-file .checkov.yaml -o cli -o github_failed_only --output-file-path console,test-results/checkov-failed.md
+  tf:bootstrap:
+    desc: "One-time per account: state backends + GitHub OIDC deploy roles for the platform AND every registered service (terraform/bootstrap/variables.tf `services`). GITHUB_REPOSITORY=<owner/repo> of THIS repo required. Needs local admin AWS creds. See docs/operations."
+    dir: "{{.TF_DIR}}/bootstrap"
+    preconditions:
+      - sh: test -n "$GITHUB_REPOSITORY"
+        msg: "Set GITHUB_REPOSITORY=<owner/repo> so the platform OIDC trust is scoped to your repo (default is the template's own repo)."
+    cmds:
+      # Local backend — this run CREATES the per-env remote backends the envs use.
+      - terraform init -input=false
+      - terraform apply -input=false -var=platform_name="${PLATFORM_NAME:-platform}" -var=github_repository="$GITHUB_REPOSITORY"
+      # Prints the derived bucket/lock/alias names + deploy role ARNs. Only
+      # AWS_DEPLOY_ROLE_ARN (per env, per repo) needs setting as a GitHub secret.
+      - terraform output
+
+  tf:plan:
+    desc: "Terraform plan for an env, e.g. task tf:plan ENV=dev (backend names derived from platform_name+env+account; needs AWS creds)"
+    dir: "{{.TF_DIR}}/envs/{{.ENV}}"
+    cmds:
+      # Backend names are derived from the env's platform_name (read from
+      # terraform.tfvars, or PLATFORM_NAME override) + env + account id, so nothing
+      # account-specific is committed and there are no state secrets to set. The
+      # state key's alias is resolved to its ARN because the bucket policy only
+      # accepts writes encrypted with exactly that key.
+      - |
+        set -euo pipefail
+        name="${PLATFORM_NAME:-$(sed -nE 's/^platform_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' terraform.tfvars)}"
+        account="$(aws sts get-caller-identity --query Account --output text)"
+        region="${AWS_REGION:-eu-west-2}"
+        key_arn="$(aws kms describe-key --key-id "alias/${name}-tfstate-{{.ENV}}" --query KeyMetadata.Arn --output text)"
+        terraform init -input=false -reconfigure \
+          -backend-config=bucket="${name}-tfstate-{{.ENV}}-${account}" \
+          -backend-config=region="${region}" \
+          -backend-config=dynamodb_table="${name}-tflock-{{.ENV}}" \
+          -backend-config=kms_key_id="${key_arn}"
+        # The same name goes to Terraform, so an override can never pair one
+        # platform's state backend with another's resources.
+        terraform plan -input=false -var-file=terraform.tfvars -var=platform_name="${name}" -out=tfplan
+  tf:apply:
+    desc: "Terraform apply for an env (used by CI deploy). Applies the saved plan from tf:plan."
+    dir: "{{.TF_DIR}}/envs/{{.ENV}}"
+    cmds:
+      - task: tf:plan
+        vars: { ENV: "{{.ENV}}" }
+      - terraform apply -input=false tfplan
+
+  deploy:
+    desc: "Full deploy for an env: build the trigger bundle, apply the platform, verify the published interface"
+    cmds:
+      - task: build
+      - task: tf:apply
+        vars: { ENV: "{{.ENV}}" }
+      - task: interface:verify
+        vars: { ENV: "{{.ENV}}" }
+
+  interface:verify:
+    desc: "Post-deploy: every always-present parameter documented in docs/interface exists under /<platform_name>/<env>/ (needs AWS creds)"
+    cmds:
+      - ./scripts/interface-verify.sh {{.ENV}}
+
+  # ---------------------------------------------------------------------------
+  # Release / cost / hooks
+  # ---------------------------------------------------------------------------
+  release:
+    desc: Run semantic-release (changelog, tag, GitHub release) — pinned via the root devDependencies/lockfile
+    cmds:
+      - pnpm exec semantic-release -e ./.releaserc.json
+  cost:
+    desc: "Infracost breakdown for an env (JSON to OUT=<file> when set, e.g. for the PR comment)"
+    dir: "{{.TF_DIR}}/envs/{{.ENV}}"
+    cmds:
+      - infracost breakdown --path . {{if .OUT}}--format json --out-file {{.OUT}}{{end}}
+  hooks:install:
+    desc: Install the git hooks (also runs automatically on `pnpm install`)
+    cmds:
+      - lefthook install
