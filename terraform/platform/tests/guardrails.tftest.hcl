@@ -133,6 +133,50 @@ run "prod_hardened" {
   }
 }
 
+run "prod_refuses_trimmed_endpoints" {
+  command = plan
+  variables {
+    env                 = "prod"
+    deletion_protection = true
+    enable_waf          = true
+    alarm_email         = "ops@example.com"
+    callback_urls       = ["https://app.example.com/callback"]
+    logout_urls         = ["https://app.example.com/"]
+    interface_endpoints = ["logs"]
+    endpoint_az_count   = 1
+  }
+  expect_failures = [var.interface_endpoints, var.endpoint_az_count]
+}
+
+# --- dev may trade endpoint reachability for cost, without moving the interface ---
+run "dev_can_drop_endpoints" {
+  command = plan
+  variables {
+    env                 = "dev"
+    interface_endpoints = []
+  }
+  assert {
+    condition     = length(module.network.interface_endpoints) == 0
+    error_message = "dev must be able to create no interface endpoints at all"
+  }
+  assert {
+    condition     = module.interface.names["network/private_subnet_ids"] == "/platform/dev/network/private_subnet_ids"
+    error_message = "dropping endpoints must not change the published interface"
+  }
+}
+
+run "endpoint_az_count_shrinks_the_billed_enis" {
+  command = plan
+  variables {
+    env               = "dev"
+    endpoint_az_count = 1
+  }
+  assert {
+    condition     = alltrue([for azs in values(module.network.interface_endpoints) : azs == 1])
+    error_message = "each endpoint must have an ENI in exactly one AZ when endpoint_az_count = 1"
+  }
+}
+
 # --- dev defaults: the always-present interface, nothing optional -----------------
 run "dev_defaults" {
   command = plan

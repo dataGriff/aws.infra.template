@@ -11,3 +11,7 @@ output "dynamodb_prefix_list_id" {
   description = "Managed prefix list of the DynamoDB gateway endpoint (for egress rules)"
 }
 output "nat_enabled" { value = local.enable_nat }
+output "interface_endpoints" {
+  value       = { for k, e in aws_vpc_endpoint.interface : k => length(e.subnet_ids) }
+  description = "Endpoint service -> the number of AZs it has an ENI in (the unit PrivateLink bills)"
+}
