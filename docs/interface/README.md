@@ -80,7 +80,8 @@ resource "terraform_data" "interface_version" {
 
 Read optional parameters only when your own flag is on (`count = var.enable_waf ? 1 : 0`), so a
 missing feature fails at plan time with a clear message. The service deploy role created by the
-bootstrap may read only `/<platform_name>/<env>/*` for its environment.
+bootstrap may read only `/<platform_name>/<env>/*` for its environment and is explicitly denied
+any write under `/<platform_name>/*`: only the platform's own deploy publishes the interface.
 
 ## Changing the interface
 

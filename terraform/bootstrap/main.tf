@@ -61,8 +61,9 @@ module "github_oidc" {
       state_kms_key_arn = module.backend[key].kms_key_arn
       # A service's IAM roles/policies are named <service>-<env>-...; the
       # platform publishes its interface under /<platform_name>/<env>/.
-      iam_name_prefix = "${b.owner}-${b.env}-"
-      ssm_prefix      = "/${var.platform_name}/${b.env}"
+      iam_name_prefix      = "${b.owner}-${b.env}-"
+      ssm_prefix           = "/${var.platform_name}/${b.env}"
+      protected_ssm_prefix = "/${var.platform_name}"
     }
   }
   tags = var.tags

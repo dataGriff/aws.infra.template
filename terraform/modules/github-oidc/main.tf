@@ -117,6 +117,32 @@ resource "aws_iam_role_policy" "scoped_iam" {
   policy   = each.value.json
 }
 
+# PowerUserAccess allows every SSM action, so without this a service could
+# overwrite or delete the platform's published interface. An explicit deny on
+# the whole platform namespace (every environment) beats that allow; reads are
+# granted above and stay untouched.
+data "aws_iam_policy_document" "protect_platform_interface" {
+  for_each = { for k, r in var.roles : k => r if !r.admin }
+  statement {
+    sid    = "DenyWritesToPlatformInterface"
+    effect = "Deny"
+    actions = [
+      "ssm:PutParameter", "ssm:DeleteParameter", "ssm:DeleteParameters",
+      "ssm:LabelParameterVersion", "ssm:UnlabelParameterVersion",
+      "ssm:PutResourcePolicy", "ssm:DeleteResourcePolicy",
+      "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource",
+    ]
+    resources = ["arn:${local.partition}:ssm:*:${local.account_id}:parameter${each.value.protected_ssm_prefix}/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "protect_platform_interface" {
+  for_each = data.aws_iam_policy_document.protect_platform_interface
+  name     = "protect-platform-interface"
+  role     = aws_iam_role.deploy[each.key].id
+  policy   = each.value.json
+}
+
 # Every role can touch ONLY its own state backend (bucket, lock table and KMS
 # key). This is the isolation the per-env, per-repo split buys us.
 data "aws_iam_policy_document" "state_access" {

@@ -6,7 +6,9 @@ The platform is secure-by-default and is the trust boundary every API inherits.
   trust scoped to `repo:<owner>/<repo>:environment:<env>` so only that repo, from a job bound to
   that GitHub Environment (where reviewers live), can assume it. Platform roles are administrators;
   **service roles** get `PowerUserAccess` + IAM scoped to `<service>-<env>-*` roles/policies, their
-  own state backend, and read-only access to `/<platform>/<env>/*` parameters. Nothing else.
+  own state backend, and read-only access to `/<platform>/<env>/*` parameters — with writes anywhere
+  under `/<platform>/*` **explicitly denied**, so no service can alter the published interface.
+  Nothing else.
 - **State**: per env, per owner S3 buckets — versioned, CMK-encrypted, TLS-only, non-KMS writes
   denied, public access blocked, `prevent_destroy` — with encrypted, PITR-enabled lock tables.
 - **Network**: VPC flow logs on; the default security group is stripped of all rules; private

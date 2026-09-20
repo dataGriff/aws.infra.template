@@ -61,4 +61,8 @@ run "one_backend_and_role_per_owner_and_env" {
     condition     = module.github_oidc.service_role_names == tolist(["github-deploy-orders-api-dev", "github-deploy-orders-api-prod", "github-deploy-todo-api-dev", "github-deploy-todo-api-prod"])
     error_message = "every service must get a scoped (non-admin) deploy role per environment"
   }
+  assert {
+    condition     = module.github_oidc.interface_protected_role_names == module.github_oidc.service_role_names
+    error_message = "every service role (and only those) must carry the explicit deny on writes to the platform SSM namespace"
+  }
 }
