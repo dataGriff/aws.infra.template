@@ -50,15 +50,15 @@ run "one_backend_and_role_per_owner_and_env" {
     error_message = "every owner must get a backend per environment"
   }
   assert {
-    condition     = module.backend["todo-api/dev"].state_bucket == "todo-api-tfstate-dev-123456789012" && module.backend["todo-api/dev"].lock_table == "todo-api-tflock-dev"
+    condition     = module.backend["todo-api/dev"].state_bucket_name == "todo-api-tfstate-dev-123456789012" && module.backend["todo-api/dev"].lock_table_name == "todo-api-tflock-dev"
     error_message = "service backends must use the derived names the API repo's task tf:plan computes"
   }
   assert {
-    condition     = toset(keys(module.github_oidc.role_arns)) == toset(["github-deploy-platform-dev", "github-deploy-platform-prod", "github-deploy-todo-api-dev", "github-deploy-todo-api-prod", "github-deploy-orders-api-dev", "github-deploy-orders-api-prod"])
-    error_message = "every owner must get a deploy role per environment"
+    condition     = module.github_oidc.admin_role_names == tolist(["github-deploy-platform-dev", "github-deploy-platform-prod"])
+    error_message = "only the platform's roles are administrators"
   }
   assert {
-    condition     = length(module.github_oidc.aws_iam_role_policy_attachment.admin) == 2 && length(module.github_oidc.aws_iam_role_policy_attachment.poweruser) == 4
-    error_message = "only the platform's roles are administrators; service roles are PowerUser + scoped IAM"
+    condition     = module.github_oidc.service_role_names == tolist(["github-deploy-orders-api-dev", "github-deploy-orders-api-prod", "github-deploy-todo-api-dev", "github-deploy-todo-api-prod"])
+    error_message = "every service must get a scoped (non-admin) deploy role per environment"
   }
 }

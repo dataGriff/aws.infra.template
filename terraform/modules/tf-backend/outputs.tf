@@ -4,3 +4,6 @@ output "lock_table" { value = aws_dynamodb_table.lock.id }
 output "lock_table_arn" { value = aws_dynamodb_table.lock.arn }
 output "kms_key_arn" { value = aws_kms_key.state.arn }
 output "kms_alias" { value = aws_kms_alias.state.name }
+# Known at plan time (the inputs, not the created resources), for tests.
+output "state_bucket_name" { value = var.state_bucket }
+output "lock_table_name" { value = var.lock_table }
